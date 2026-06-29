@@ -1,0 +1,402 @@
+---
+title: "Applied Statistics and Probability Coursework"
+subtitle: "Task 2"
+author: |
+  Student ID: 201885202
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+\section*{Abstract}
+Our discussion involves selection and fitting of three different classes of time series model to the DAX index close prices over a 150-trading day period. We select these models via analysis of the ACF, PACF and the stationarity of the series. The analyses results in selection of an AR(1), MA(1) and ARIMA(1,1,1) model. We evaluated the fit of these models to the data using the AIC and BIC and found the ARIMA(1,1,1) model to be the best fit. Our full dataset contains the daily price information for four stock indices, so we go on to test whether there is benefit in using the full dataset for forecasting the daily close prices for the DAX index. To do so we implement a VAR(2) model. We use 140 days of data to fit our models and forecast the last 10 days. We compare forecasts for the ARIMA(1,1,1) and VAR(2) model to the observed data, and go onto find the VAR(2) model has the better forecasting ability through a lower RMSE and MAE. This suggests linear relationships between the DAX index and other indices that the VAR(2) model is able to capture. 
+
+\section*{Introduction}
+This task involves fitting three different classes of time series model to the DAX index over a 150-trading day period, with a particular focus on DAX index daily closing prices. We select appropriate models based on the characteristics of the series and then evaluate each models fit, using various criteria, to select the model that fits best to the data. The best fit model is then used to forecast the DAX index daily closing prices for the next 10 trading days. Our dataset also includes daily information for three other stock indices. This information could potentially offer additional value when it comes to forecasting the DAX index, so we go on to test this by fitting a VAR model and comparing it's forecasting ability to the best performing model from our earlier analyses. We use information from (Hernandez-Hernandez 2024) throughout, and have specifically cited where key formulas and definitions are mentioned. 
+```{r, echo=FALSE, include=FALSE}
+# Load necessary libraries
+library(readxl)
+library(tidyverse)
+library(forecast)
+library(xts)
+library(ggplot2)
+library(dplyr)
+library(tseries)
+library(urca)
+library(vars)
+```
+
+
+```{r, echo=FALSE, include=FALSE}
+# Load the datasets and preprocess
+AEX <- read_excel("Indices.xlsx", sheet = "AEX") %>%
+  dplyr::select(Date, Close) %>%
+  mutate(Date = as.Date(Date, format = "%b %d, %Y")) %>%
+  arrange(Date)
+
+BEL20 <- read_excel("Indices.xlsx", sheet = "BEL20") %>%
+  dplyr::select(Date, Close) %>%
+  mutate(Date = as.Date(Date, format = "%b %d, %Y")) %>%
+  arrange(Date)
+
+CAC40 <- read_excel("Indices.xlsx", sheet = "CAC40") %>%
+  dplyr::select(Date, Close) %>%
+  mutate(Date = as.Date(Date, format = "%b %d, %Y")) %>%
+  arrange(Date)
+
+DAX <- read_excel("Indices.xlsx", sheet = "DAX") %>%
+  dplyr::select(Date, Close) %>%
+  mutate(Date = as.Date(Date, format = "%b %d, %Y")) %>%
+  arrange(Date)
+
+# Convert the 'Close' column of each dataset to a time series object
+AEX_ts <- ts(AEX$Close, start = c(year(min(AEX$Date)), month(min(AEX$Date))))
+BEL20_ts <- ts(BEL20$Close, start = c(year(min(BEL20$Date)), month(min(BEL20$Date))))
+CAC40_ts <- ts(CAC40$Close, start = c(year(min(CAC40$Date)), month(min(CAC40$Date))))
+DAX_ts <- ts(DAX$Close, start = c(year(min(DAX$Date)), month(min(DAX$Date))))
+```
+
+\section*{Interpretation of Autocorrelation and Stationarity of the DAX Index Closing Prices}
+Some potential models we can look at fitting are an AR($p$), MA($q$), ARMA($p,q$) or an ARIMA($p,d,q$).From (Hernandez-Hernandez 2024), we know that to fit any of these models we can use the following indications to determine model suitability and parameters:
+\begin{table}[h!]
+\centering
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{Model} & \textbf{ACF Behaviour} & \textbf{PACF Behaviour} \\
+\hline
+AR($p$) & Magnitude decreases geometrically & No significant partial autocorrelation after lag $p$ \\
+\hline
+MA($q$) & No significant autocorrelation after lag $q$ & Magnitude decreases geometrically \\
+\hline
+ARMA($p,q$) & Like AR($p$) & Like MA($q$) \\
+\hline
+\end{tabular}
+\label{table:acf_pacf_models}
+\end{table}
+
+```{r fig.width=7, fig.height=2.5, fig.align='center'}
+par(mfrow = c(1, 2))
+
+# Plot ACF
+acf(DAX_ts, lag.max = 30, main = "ACF of DAX Time \nSeries", ci = 0.95)
+
+# Plot PACF
+pacf(DAX_ts, lag.max = 30, main = "PACF of DAX Time \nSeries", ci = 0.95)
+```
+
+Looking at the ACF of the DAX time series we can clearly see the magnitude decreases geometrically and the PACF shows a sharp drop in partial autocorrelation after lag $p = 1$. Our criteria suggest an AR($1$) model could be suitable here. We note that the ACF shows no clear sharp cutoff in autocorrelation, suggesting the moving average component of the series is minimal. This suggests an MA model isn't ideal for our series. We decide to use an MA($1$) model to test this theory in later analyses. Our discussion also suggests an ARMA model wouldn't be ideal here due to the minimal moving average component to our series. 
+
+```{r, echo=FALSE, include=FALSE}
+# Time Series Plot of DAX closing prices
+ggplot(DAX, aes(x = Date, y = Close)) +
+  geom_line(color = "blue") +
+  labs(title = "DAX Closing Prices Over Time", x = "Date", y = "Close Price") +
+  theme_minimal()
+```
+To determine whether an ARIMA model could be more suitable for our data we must look at the stationarity of the DAX close price.To do so we implement the Augmented Dickey-Fuller (ADF) test (Dickey 1979). The ADF test is based on the following regression model:
+
+\[
+\Delta y_t = \alpha + \beta t + \gamma y_{t-1} + \sum_{i=1}^{p} \delta_i \Delta y_{t-i} + \varepsilon_t
+\]
+
+\textbf{Null Hypothesis ($H_0$):} The time series has a unit root (non-stationary), i.e., $\gamma = 0$.\
+\textbf{Alternative Hypothesis ($H_a$):} The time series is stationary, i.e., $\gamma < 0$.
+
+To perform the test the regression parameters are estimated using OLS and then the ADF test statistic is computed and compared to the Dickey-Fuller critical values. The test statistic is calculated as follows:
+\[
+\text{ADF Test Statistic} = \frac{\hat{\gamma}}{\text{SE}(\hat{\gamma})}
+\]
+
+We reject $H_0$ if the test statistic is less than the critical value, indicating stationarity; otherwise, fail to reject $H_0$, suggesting non-stationarity.
+
+```{r, warning=FALSE, message=FALSE}
+# Perform ADF test
+adf.test(DAX$Close, alternative = "stationary")
+```
+Looking at the results of our ADF test, our p-value means we fail to reject the null hypothesis at the 5% significance level, indicating our time series is not stationary. This suggest using an ARIMA model may be beneficial as differencing our time series could make it stationary, so it no longer violates the assumptions of an AR, MA or ARMA model.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# First difference of the series
+DAX_diff <- diff(DAX$Close)
+
+# Perform ADF test
+adf.test(DAX_diff, alternative = "stationary")
+```
+Using the ADF test on the differenced series our p-value indicates that we can reject the null hypothesis at the 5% significance level, thus, our series is stationary. We go on to plot the ACF and PACF of the differenced series to get an indication of the parameters we should use for an ARIMA model. 
+
+```{r fig.width=7, fig.height=2.5, fig.align='center', echo=FALSE}
+par(mfrow = c(1, 2)) 
+# Plot ACF and PACF for the differenced DAX close prices
+acf(DAX_diff, lag.max = 30, main = "ACF of Differenced \nDAX Close Prices", ci = 0.95)
+pacf(DAX_diff, lag.max = 30, main = "PACF of Differenced \nDAX Close Prices", ci = 0.95)
+```
+
+The PACF suggests $p = 1$, due to the sharp drop in autocorrelation at the first lag. We see a similar drop in autocorrelation at the first lag in the ACF too, suggesting $q = 1$. This analysis indicates an ARIMA($1,1,1$) model would be suitable for our series. 
+
+We decide to select an AR($1$), MA($1$) and ARIMA ($1,1,1$) as the models we are going to use to perform our analysis. An ARMA model is unnecessary here as it is clear it will be a worse fit than an ARIMA model as our undifferenced series isn't stationary.
+
+```{r}
+# Fit an AR model
+ar_model <- arima(DAX$Close, order = c(1, 0, 0))  # Replace with appropriate p
+
+# Fit an MA model
+ma_model <- arima(DAX$Close, order = c(0, 0, 1))  # Replace with appropriate q
+
+# Fit an ARIMA model (if differencing is needed)
+arima_model <- arima(DAX$Close, order = c(1, 1, 1))
+```
+\section*{Selection of the Best Fitting Model}
+To understand which model is the best fit to the data we carry out multiple analyses. To understand in general if any of our models are a good fit to the data the residuals of the models must follow a white noise process. We first plot the the residuals and the ACF of the residuals to get an initial insight.
+
+```{r, echo=FALSE}
+# Plot residuals for each model
+par(mfrow = c(2, 3))  # Set up the plotting window
+plot(residuals(ar_model), main = "Residuals of AR(1) Model", ylab = "Residuals")
+plot(residuals(ma_model), main = "Residuals of MA(1) Model", ylab = "Residuals")
+plot(residuals(arima_model), main = "Residuals of ARIMA(1, 1, 1) \nModel", ylab = "Residuals")
+
+# Plot ACF of residuals for each model
+acf(residuals(ar_model), main = "ACF of Residuals for AR(1) Model")
+acf(residuals(ma_model), main = "ACF of Residuals for \nMA(1) Model")
+acf(residuals(arima_model), main = "ACF of Residuals for \nARIMA(1, 1, 1) Model")
+```
+Looking at these plots there is an indication that the residuals of the AR($1$) and the ARIMA($1,1,1$) follow a white noise process, whereas this is not the case for the MA($1$) model. This supports our initial suggestions that our original series contains a minimal moving average component. To be certain of these findings we perform the the Ljung-Box test to check for autocorrelation in the residuals (Ljung 1978). 
+
+\textbf{Null Hypothesis ($H_0$):} The residuals are independently distributed (no autocorrelation).\
+\textbf{Alternative Hypothesis ($H_a$):} The residuals are not independently distributed (autocorrelation exists).
+
+The Ljung-Box test statistic is calculated as:
+\[
+Q = n(n+2) \sum_{k=1}^m \frac{\hat{\rho}_k^2}{n-k}
+\]
+where $n$ is the number of observations, $m$ is the number of lags, and $\hat{\rho}_k$ is the autocorrelation of the residuals at lag $k$.
+
+Under the null hypothesis, the test statistic $Q$ follows a chi-squared distribution with $m$ degrees of freedom, i.e., $Q \sim \chi^2_m$.
+
+If the p-value from the chi-squared distribution is less than the significance level $\alpha$, reject the null hypothesis ($H_0$). This indicates evidence of autocorrelation. Otherwise, fail to reject the null hypothesis, indicating no significant autocorrelation in the residuals.
+```{r}
+# Perform Ljung-Box test for each model
+ljung_test_ar <- Box.test(residuals(ar_model), lag = 30, type = "Ljung-Box")
+ljung_test_ma <- Box.test(residuals(ma_model), lag = 30, type = "Ljung-Box")
+ljung_test_arima <- Box.test(residuals(arima_model), lag = 30, type = "Ljung-Box")
+
+# Print Ljung-Box test results
+cat("Ljung-Box Test for AR(1) Model: p-value =", ljung_test_ar$p.value, "\n")
+cat("Ljung-Box Test for MA(1) Model: p-value =", ljung_test_ma$p.value, "\n")
+cat("Ljung-Box Test for ARIMA(1, 1, 1) Model: p-value =", ljung_test_arima$p.value, "\n")
+```
+Based on the p-values it is clear that the AR($1$) and ARIMA($1,1,1$) models show no significant autocorrelation in the residuals at the 5% significance level, whereas the MA($1$) model does. We still need to select the best fit model between those that show no significant autocorrelation. We do this using the Akaike information criterion (AIC) and Bayesian information criterion (BIC) from (Hernandez-Hernandez 2024).
+
+\[
+\text{AIC} = -2\ln(L) + 2k
+\]
+\[
+\text{BIC} = -2\ln(L) + k\ln(n)
+\]
+
+where $L$ is the maximum likelihood of the model, $k$ is the number of parameters in the model, and $n$ is the number of observations.
+
+The AIC value penalises models with more parameters to avoid overfitting. A lower AIC value indicates a better model. A lower BIC also indicates a better model. The only difference is that BIC has a stronger penalty term.
+
+```{r}
+# Compare AIC and BIC values
+model_comparison <- data.frame(
+  Model = c("AR(1)", "MA(1)", "ARIMA(1, 1, 1)"),
+  AIC = c(AIC(ar_model), AIC(ma_model), AIC(arima_model)),
+  BIC = c(BIC(ar_model), BIC(ma_model), BIC(arima_model))
+)
+model_comparison
+```
+Calculation of the AIC and BIC indicate that the ARIMA($1,1,1$) model is the best fit to our data, with the lowest values for the both measures. We select this model to use for our further analyses. 
+
+\section*{Forecasting}
+We forecast the DAX index close price for the next 10 trading days using the ARIMA($1,1,1$) model and plot the results, as the task instructs. At this point, we can offer little interpretation of the model's forecasting ability as it forecasts unseen data. In the next section, we will offer a clearer interpretation of the model's forecasting performance through the use of a train and test dataset. 
+```{r fig.width=7, fig.height=2.5, fig.align='center'}
+set.seed(123)
+# Forecast the next 10 days
+forecast_result <- forecast(arima_model, h = 10)
+
+# Plot the forecasted actual close prices
+plot(forecast_result, main = "Forecast of DAX Close Prices for the Next \n10 Days")
+```
+\section*{Implementation of a Vector Autoregressive (VAR) Model}
+Our dataset contains daily information for four stock indices. There is the possibility that we have linear relationships between the daily close prices of our four stock indices. This possibility suggests a VAR model could have superior forecasting performance to the models discussed in the previous sections. 
+
+A VAR model is able to model multiple time series variables that may be interdependent (Hernandez-Hernandez 2024). It captures the linear relationships between these variables, making it ideal for forecasting one variable that may depend on others. In contrast, our best-performing ARIMA model from the previous section models a single time series variable, which limits its ability to capture interactions among multiple time series.
+
+\[
+\text{VAR Model:} \quad Y_t = c + \sum_{i=1}^p A_i Y_{t-i} + \epsilon_t
+\]
+
+where: \( Y_t \) is a vector of time series variables at time \( t \), \( A_i \) are coefficient matrices for the lagged variables, and \( \epsilon_t \) is a vector of error terms.
+
+```{r, echo=FALSE}
+# Load and process the data for each index with specific renaming
+AEX <- read_excel("Indices.xlsx", sheet = "AEX") %>%
+  dplyr::select(Date, Close) %>%
+  mutate(Date = as.Date(Date, format = "%b %d, %Y")) %>%
+  arrange(Date) %>%
+  rename(Close.AEX = Close)  # Rename Close column for AEX
+
+BEL20 <- read_excel("Indices.xlsx", sheet = "BEL20") %>%
+  dplyr::select(Date, Close) %>%
+  mutate(Date = as.Date(Date, format = "%b %d, %Y")) %>%
+  arrange(Date) %>%
+  rename(Close.BEL20 = Close)  # Rename Close column for BEL20
+
+CAC40 <- read_excel("Indices.xlsx", sheet = "CAC40") %>%
+  dplyr::select(Date, Close) %>%
+  mutate(Date = as.Date(Date, format = "%b %d, %Y")) %>%
+  arrange(Date) %>%
+  rename(Close.CAC40 = Close)  # Rename Close column for CAC40
+
+DAX <- read_excel("Indices.xlsx", sheet = "DAX") %>%
+  dplyr::select(Date, Close) %>%
+  mutate(Date = as.Date(Date, format = "%b %d, %Y")) %>%
+  arrange(Date) %>%
+  rename(Close.DAX = Close)  # Rename Close column for DAX
+
+# Merge the datasets based on Date to create a combined data frame for the VAR model
+combined_data <- AEX %>%
+  full_join(BEL20, by = "Date") %>%
+  full_join(CAC40, by = "Date") %>%
+  full_join(DAX, by = "Date")
+
+# Convert the stationary data frame into a time series object
+var_ts <- ts(combined_data, frequency = 252)
+```
+To understand whether use of the complete dataset improves the ability to forecast the DAX index closing prices for the next 10 trading days we go on to fit a VAR model. A key assumption of the VAR model is stationarity of each series. From earlier sections, we know DAX close prices aren't stationary so we implement a function to test for stationarity of each series using the ADF test. If a series is not stationary the series is differenced, and then the differenced series is tested for stationarity. 
+
+```{r}
+# Check for stationarity and difference the series if not stationary
+check_stationarity <- function(series) {
+  test_result <- ur.df(series, type = "drift", selectlags = "AIC")
+  
+  # Extract test statistic and critical value for comparison
+  test_statistic <- test_result@teststat[1]
+  critical_value <- test_result@cval[1, 1]
+  
+  # Compare test statistic with critical value
+  if (test_statistic > critical_value) {
+    cat("The series is non-stationary. Differencing...\n")
+    return(diff(series))
+  } else {
+    cat("The series is stationary.\n")
+    return(series)
+  }
+}
+```
+
+```{r, echo=FALSE, results='hide'}
+# Apply the stationarity check and differencing if needed
+var_stationary <- data.frame(
+  AEX = check_stationarity(var_ts[, "Close.AEX"]),
+  BEL20 = check_stationarity(var_ts[, "Close.BEL20"]),
+  CAC40 = check_stationarity(var_ts[, "Close.CAC40"]),
+  DAX = check_stationarity(var_ts[, "Close.DAX"])
+)
+
+# Convert the stationary data frame into a time series object
+var_ts_stationary <- ts(var_stationary, frequency = 252)
+
+stationarity_results <- sapply(var_ts_stationary, check_stationarity)
+```
+From this we find the close prices for all four stock indices are non-stationary, so we difference each series and find that the differenced series are all stationary. 
+
+We next split our data into a training set that includes the first 140 trading days, and a test set that includes the last 10 trading days. This is to enable us to quantify the forecasting performance of our models. 
+```{r, warning=FALSE, message=FALSE}
+train_ts_stationary <- window(var_ts_stationary, end = c(140))
+```
+To select the number of lags ($p$) to be used in our VAR model we use the VARselect function to select the model with the best parameters using AIC. We test for lags up to 10 because this is how many trading days we will obtain forecasts for. 
+```{r}
+# Use VARselect to choose the optimal lag length
+lag_selection <- VARselect(train_ts_stationary, lag.max = 10, type = "const")
+
+# Fit the VAR model using the chosen lag length from VARselect
+optimal_lag <- lag_selection$selection["AIC(n)"]  # Example using AIC as the criterion
+```
+From this we find a VAR(2) model is the best fit for our dataset. We go on to fit a VAR(2) model using the first 140 trading days, as well as an ARIMA(1,1,1), so we can understand the potential benefits of using the full dataset for forecasting the DAX index. 
+```{r}
+var_model <- VAR(train_ts_stationary, p = optimal_lag, type = "const")
+
+# Forecast the next 10 days for all variables using the VAR model
+forecast_result <- forecast(var_model, h = 10)
+
+# Extract the forecast for DAX Close price (differenced)
+dax_forecast_diff <- forecast_result$forecast[["DAX"]]
+
+# Convert the forecasted differences back to the original scale for DAX Close
+# Add the last observed value to the forecasted differences to bring them back to the original scale
+last_observed_dax <- tail(combined_data$Close.DAX, 1)
+dax_forecast_original_scale <- c(last_observed_dax, cumsum(dax_forecast_diff$mean) + last_observed_dax)
+```
+
+```{r, echo=FALSE}
+# Fit an ARIMA model using only the first 140 days of data
+arima_model <- arima(window(combined_data$Close.DAX, end = c(140)), order = c(1, 1, 1))
+arima_forecast <- forecast(arima_model, h = 10)
+```
+We go on to plot the DAX close price over the next 10 tradings days using the observed values and the forecasts from the ARIMA(1,1,1) and VAR(2) models.
+
+
+```{r fig.width=8, fig.height=2.5, fig.align='center', echo=FALSE}
+# Set plot margins to create space for the legend
+par(mar = c(5, 5, 2, 10))  # Increase right margin
+
+# Get the last 10 observed values from the dataset for comparison
+last_10_dates <- tail(combined_data$Date, 10)
+last_10_values <- tail(combined_data$Close.DAX, 10)
+
+actual_values <- last_10_values
+predicted_values_var <- dax_forecast_original_scale[-1]  # Exclude the first value (initial observation)
+predicted_values_arima <- arima_forecast$mean
+
+# Plot the last 10 observed values and the forecasted values
+plot(last_10_dates, last_10_values, type = "l", col = "blue", xlab = "Date", ylab = "DAX Close Price", main = "DAX Close Price: Observed vs. Forecast")
+lines(last_10_dates, predicted_values_var, col = "red", lwd = 2, type = "o")  # VAR model forecast
+lines(last_10_dates, predicted_values_arima, col = "green", lwd = 2, type = "o")  # ARIMA model forecast
+legend("bottomright", legend = c("Observed", "VAR(2) Forecast", "ARIMA(1,1,1) Forecast"), col = c("blue", "red", "green"), lty = 1, lwd = 2, xpd = TRUE, cex = 0.4)
+```
+
+From this it is clear that neither models produce forecasts that follow the observed data particularly closely, however, the VAR(2) models forecasts do follow the observed data slightly closer. To get a true understanding of which model has better forecasting performance we compare them using root mean squared error (RMSE) and mean absolute error (MAE) as evaluation metrics. These are calculated as follows (Hyndman 2006):
+
+\[
+\begin{array}{cc}
+\text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^{n} (y_i - \hat{y}_i)^2} & \quad \text{MAE} = \frac{1}{n} \sum_{i=1}^{n} |y_i - \hat{y}_i| \\
+\end{array}
+\]
+
+```{r}
+# Evaluate the forecast accuracy for the VAR model
+var_evaluation_metrics <- accuracy(predicted_values_var, actual_values)
+
+# Evaluate the forecast accuracy for the ARIMA model
+arima_evaluation_metrics <- accuracy(predicted_values_arima, actual_values)
+
+# Print the evaluation metrics
+cat("VAR Model Evaluation Metrics:\n")
+var_evaluation_metrics
+
+cat("ARIMA Model Evaluation Metrics:\n")
+arima_evaluation_metrics
+```
+From these results it is clear the VAR(2) model has a stronger forecasting performance than the ARIMA(1,1,1) model, as it has a lower RMSE and MAE.This highlights the benefit of using the full dataset for forecasting the DAX index, as it is clear that their must be some linear relationships between the different indexes that the VAR model is able to capture that the ARIMA model cannot. 
+
+\section*{Conclusions}
+Overall, we conclude that out of our initial time series models the ARIMA(1,1,1) model is the best fit to the DAX index daily closing prices for our period of interest, with a likely reason for this being due to the non-stationary nature of the series. The MA(1) model is the worst fit to our dataset due to our series having a minimal moving average component, highlighted through the initial analysis of the ACF. When it comes to forecasting the VAR(2) model is the best performing. This is likely due to the presence of linear relationships between the four stock indices in our dataset, meaning use of this data in model building offers greater predictive ability. 
+
+\section*{References}
+Dickey & Fuller (1979). Distribution of the Estimators for Autoregressive Time Serie with a Unit Root. Journal of the American Statistical Association, 74(366a), 427-431.
+
+Hernandez-Hernandez (2024). Lecture Notes. Applied Probability and Statistics. University of Leeds.
+
+Hyndman & Koehler (2006). Another look at measures of forecast accuracy. International Journal of Forecasting, 22(4), 682.
+
+Ljung & Box (1978). On a measure of lack of fit in time series models. Biometrika, 65(2), 297-303.
+
+
+
