@@ -1,23 +1,23 @@
 # Time Series Analysis and Forecasting
 
-## MSc Financial Mathematics – Applied Statistics and Probability Coursework (University of Leeds)
+## MSc Financial Mathematics – Applied Statistics and Probability Project (University of Leeds)
 
-This repository contains the R implementation and report for my MSc Financial Mathematics Applied Statistics and Probability coursework completed at the University of Leeds.
+This repository contains the R implementation and report for my MSc Financial Mathematics Applied Statistics and Probability Project completed at the University of Leeds.
 
-The project develops and compares a range of classical time series models for analysing and forecasting financial data, including ARIMA and ARCH/GARCH frameworks for modelling volatility.
+The project develops and compares multiple statistical time series models for forecasting financial markets using DAX index data. Model selection is performed through autocorrelation analysis, stationarity testing and statistical diagnostics before comparing forecasting performance against a multivariate VAR model.
 
 ---
 
 ## Methods Implemented
 
-- Exploratory time series analysis
-- Stationarity testing
-- AR, MA and ARIMA models
-- Model selection using information criteria
+- Autocorrelation (ACF/PACF) analysis
+- Augmented Dickey-Fuller stationarity testing
+- AR(1), MA(1) and ARIMA(1,1,1) models
 - Residual diagnostics
-- ARCH effects testing
-- GARCH volatility modelling
-- Out-of-sample forecasting
+- Ljung-Box tests
+- AIC/BIC model selection
+- Vector Autoregressive (VAR) modelling
+- Forecast accuracy evaluation using RMSE and MAE
 
 ---
 
@@ -25,24 +25,25 @@ The project develops and compares a range of classical time series models for an
 
 - R
 - forecast
+- vars
 - tseries
-- rugarch
+- urca
 - ggplot2
 
 ---
 
 ## Key Results
 
-- Developed forecasting models using ARIMA methodology.
-- Modelled conditional volatility using ARCH and GARCH specifications.
-- Compared competing models using statistical diagnostics and forecasting performance.
-- Produced a fully reproducible analysis and report in R.
+- Selected ARIMA(1,1,1) as the best univariate model using AIC, BIC and residual diagnostics.
+- Developed a VAR(2) model using multiple stock indices to improve forecasting performance.
+- Demonstrated lower RMSE and MAE for the VAR model compared with the ARIMA benchmark.
+- Produced a fully reproducible forecasting workflow and statistical analysis in R.
 
 ---
 
 ## Repository Contents
 
-- `time_series_analysis_forecasting.R` – Complete analysis and modelling code.
+- `time_series_analysis_forecasting.Rmd` – Complete modelling and analysis code.
 - `Time Series Analysis and Forecasting Report.pdf` – Coursework report.
 
 ---
